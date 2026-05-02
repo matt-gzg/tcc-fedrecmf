@@ -1,2 +1,6 @@
 .venv/
 __pycache__/
+notes.txt
+
+fedPMF.py
+predador.sh

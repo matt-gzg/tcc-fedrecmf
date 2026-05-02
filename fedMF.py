@@ -3,7 +3,7 @@ import time
 import numpy as np
 
 from shared_parameter import *
-from load_data import train_data, test_data, user_id_list, item_id_list, ratings_dict
+from load_data import train_data, test_data, user_id_list, item_id_list
 
 #só foi tirar o encript e tals
 def user_update(single_user_vector, user_rating_list, item_vector):
@@ -26,6 +26,8 @@ def loss():
 
 #tirei a parte de cache e tempo de transmissao pq sim
 if __name__ == '__main__':
+    time_dataset = time.time()
+
     # Init process (caba tava na preguiça)
     user_vector = np.zeros([len(user_id_list), hidden_dim]) + 0.01
     item_vector = np.zeros([len(item_id_list), hidden_dim]) + 0.01
@@ -48,6 +50,7 @@ if __name__ == '__main__':
         print('User Average time', np.mean(user_time_list))
 
         # Step 3 Server update
+        # depois de coletar x informacoes, atualize
         t = time.time()
         for g in gradient_from_user:
             for item_id in g:
@@ -78,3 +81,4 @@ if __name__ == '__main__':
     real_label = np.array(real_label, dtype=np.float32)
 
     print('rmse', np.sqrt(np.mean(np.square(real_label - prediction))))
+    print('Total time', time.time() - time_dataset, 'seconds')
