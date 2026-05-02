@@ -1,14 +1,9 @@
-ml-1m/*
-ml-10m/*
+ml-*/*
 
-!ml-1m/
-!ml-10m/
-
-!ml-1m/ratings.dat
-!ml-1m/ratings_implicit.dat
-
-!ml-10m/ratings.dat
-!ml-10m/ratings_implicit.dat
+!ml-*/
+!ml-*/ratings.dat
+!ml-*/ratings.csv
+!ml-*/ratings_implicit.dat
 
 .venv/
 __pycache__/
