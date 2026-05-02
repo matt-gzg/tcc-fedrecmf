@@ -1,10 +1,5 @@
 ml-*/*
 
-!ml-*/
-!ml-*/ratings.dat
-!ml-*/ratings.csv
-!ml-*/ratings_implicit.dat
-
 .venv/
 __pycache__/
 notes.txt
