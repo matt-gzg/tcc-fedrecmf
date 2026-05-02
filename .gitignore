@@ -1,4 +1,6 @@
-ml-*/*
+ml-1m/
+ml-100k/
+ml-10m/
 
 .venv/
 __pycache__/
