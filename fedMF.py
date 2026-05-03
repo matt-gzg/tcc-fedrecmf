@@ -5,24 +5,36 @@ import numpy as np
 from shared_parameter import *
 from load_data import train_data, test_data, user_id_list, item_id_list
 
-#só foi tirar o encript e tals
+ALPHA = 40.0
+
 def user_update(single_user_vector, user_rating_list, item_vector):
     gradient = {}
     for item_id, rate, _ in user_rating_list:
-        error = rate - np.dot(single_user_vector, item_vector[item_id])
-        single_user_vector = single_user_vector - lr * (-2 * error * item_vector[item_id] + 2 * reg_u * single_user_vector)
-        gradient[item_id] = lr * (-2 * error * single_user_vector + 2 * reg_v * item_vector[item_id])
+        rate_n = (rate - 1) / 4
+        p_ui = 1.0
+        c_ui = 1 + ALPHA * rate_n
+
+        error = p_ui - np.dot(single_user_vector, item_vector[item_id])
+
+        single_user_vector = single_user_vector - lr * (-2 * c_ui * error * item_vector[item_id] + 2 * reg_u * single_user_vector)
+        single_user_vector = np.clip(single_user_vector, -1.0, 1.0)
+        
+        gradient[item_id] = lr * (-2 * c_ui * error * single_user_vector + 2 * reg_v * item_vector[item_id])
+        gradient[item_id] = np.clip(gradient[item_id], -1.0, 1.0)
+
     return single_user_vector, gradient
 
 #essa é identica ao part
 def loss():
-    loss = []
+    errors = []
     for i in range(len(user_id_list)):
-        for r in range(len(train_data[user_id_list[i]])):
-            item_id, rate, _ = train_data[user_id_list[i]][r]
-            error = (rate - np.dot(user_vector[i], item_vector[item_id])) ** 2
-            loss.append(error)
-    return np.mean(loss)
+        for item_id, rate, _ in train_data[user_id_list[i]]:
+            rate_n = (rate - 1) / 4
+            c_ui = 1 + ALPHA * rate_n
+            p_ui = 1.0
+            error = c_ui * (p_ui - np.dot(user_vector[i], item_vector[item_id])) ** 2
+            errors.append(error)
+    return np.mean(np.array(errors, dtype=np.float128))
 
 #tirei a parte de cache e tempo de transmissao pq sim
 if __name__ == '__main__':
@@ -38,35 +50,35 @@ if __name__ == '__main__':
         print('Iteration', iteration)
 
         # Step 2 User updates
-
-        gradient_from_user = []
         user_time_list = []
         for i in range(len(user_id_list)):
             t = time.time()
-            user_vector[i], gradient = user_update(user_vector[i], train_data[user_id_list[i]], item_vector)
+
+            uid = user_id_list[i]
+            interactions = train_data[uid]
+
+            for j, (item_id, rate, timestamp) in enumerate(interactions):
+                if j < len(interactions) - 1:
+                    next_item_id = interactions[j + 1][0]
+                    p = np.dot(user_vector[i], item_vector[next_item_id]) #nao ta sendo usado ainda
+
+                new_interaction = [(item_id, rate, timestamp)]
+                user_vector[i], gradient = user_update(user_vector[i], new_interaction, item_vector)
+
+                for iid in gradient:
+                    item_vector[iid] -= gradient[iid]
+
             user_time_list.append(time.time() - t)
             print('User-%s update using' % i, user_time_list[-1], 'seconds')
-            gradient_from_user.append(gradient)
+    
         print('User Average time', np.mean(user_time_list))
-
-        # Step 3 Server update
-        # depois de coletar x informacoes, atualize
-        t = time.time()
-        for g in gradient_from_user:
-            for item_id in g:
-                #indo contra o gradiente
-                item_vector[item_id] -= g[item_id]
-        server_update_time = time.time() - t
-        print('Server update using', server_update_time, 'seconds')
-
-        # for computing loss
         print('loss', loss())
-        print('Costing', max(user_time_list) + server_update_time, 'seconds')
+        print('Costing', max(user_time_list), 'seconds')
 
     prediction = []
     real_label = []
 
-    # testing
+    # testing (tem que mudar toda essa parte pro precision e ndcg)
 
     #p é a predição de todos os itens, r é a real
     for i, uid in enumerate(user_id_list):
