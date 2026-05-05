@@ -26,6 +26,10 @@ if dataset == 'ml-100k':
     current_path = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(current_path, 'ml-latest-small')
     headers, ratings = load_csv(os.path.join(data_path, 'ratings.csv'))
+elif dataset == 'ml-32m':
+    current_path = os.path.dirname(os.path.abspath(__file__))
+    data_path = os.path.join(current_path, 'ml-32m')
+    headers, ratings = load_csv(os.path.join(data_path, 'ratings.csv'))
 else:
     current_path = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(current_path, dataset)
@@ -35,8 +39,6 @@ else:
 num_items = len(ratings)
 user_ids = set(int(e[0]) for e in ratings)
 num_users = len(user_ids)
-print(len(ratings))
-print(num_users)
 
 #ordena pelo timestamp pra fazer a linha temporal
 ratings_sorted_by_time = sorted(ratings, key=lambda x: int(x[-1]))

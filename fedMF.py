@@ -5,34 +5,34 @@ import numpy as np
 from shared_parameter import *
 from load_data import train_data, test_data, user_id_list, item_id_list
 
-ALPHA = 40.0
-
 def user_update(single_user_vector, user_rating_list, item_vector):
     gradient = {}
     for item_id, rate, _ in user_rating_list:
-        rate_n = (rate - 1) / 4
-        p_ui = 1.0
-        c_ui = 1 + ALPHA * rate_n
+        if rate >= 4:
+            p_ui = 1.0
+        else:
+            p_ui = 0.0
 
         error = p_ui - np.dot(single_user_vector, item_vector[item_id])
+        gradient[item_id] = lr * (-2 * p_ui * error * single_user_vector + 2 * reg_v * item_vector[item_id])
 
-        single_user_vector = single_user_vector - lr * (-2 * c_ui * error * item_vector[item_id] + 2 * reg_u * single_user_vector)
-        single_user_vector = np.clip(single_user_vector, -1.0, 1.0)
-        
-        gradient[item_id] = lr * (-2 * c_ui * error * single_user_vector + 2 * reg_v * item_vector[item_id])
-        gradient[item_id] = np.clip(gradient[item_id], -1.0, 1.0)
+        #definir um hiperparametro pra rodar varias vezes pra cada user
+        for _ in range(hiperparam):
+            single_user_vector = single_user_vector - lr * (-2 * p_ui * error * item_vector[item_id] + 2 * reg_u * single_user_vector)
+            gradient[item_id] = lr * (-2 * p_ui * error * single_user_vector + 2 * reg_v * item_vector[item_id])
 
     return single_user_vector, gradient
 
-#essa é identica ao part
+#identica ao part
 def loss():
     errors = []
     for i in range(len(user_id_list)):
         for item_id, rate, _ in train_data[user_id_list[i]]:
-            rate_n = (rate - 1) / 4
-            c_ui = 1 + ALPHA * rate_n
-            p_ui = 1.0
-            error = c_ui * (p_ui - np.dot(user_vector[i], item_vector[item_id])) ** 2
+            if rate >= 4:
+                p_ui = 1.0
+            else:
+                p_ui = 0.0
+            error = (p_ui - np.dot(user_vector[i], item_vector[item_id])) ** 2
             errors.append(error)
     return np.mean(np.array(errors, dtype=np.float128))
 
@@ -74,6 +74,8 @@ if __name__ == '__main__':
         print('User Average time', np.mean(user_time_list))
         print('loss', loss())
         print('Costing', max(user_time_list), 'seconds')
+
+        #talvez fazer mais iteracoes por usuario antes de atualizar o server.
 
     prediction = []
     real_label = []
