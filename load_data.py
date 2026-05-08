@@ -70,6 +70,39 @@ for uid in user_id_list:
     train_data[uid] = sorted_rate[:split_idx]
     test_data[uid]  = sorted_rate[split_idx:]
 
+
+def dataset_stats():
+    """Return basic dataset characteristics.
+
+    Returns:
+        dict: {
+            'num_users': int,
+            'num_items': int,
+            'num_ratings': int,
+            'sparsity': float,
+        }
+    """
+    num_users = len(user_id_list)
+    num_items = len(item_id_list)
+    num_ratings = sum(len(user_ratings) for user_ratings in ratings_dict.values())
+    total_possible = num_users * num_items if num_users and num_items else 0
+    sparsity = 1.0 - (num_ratings / total_possible) if total_possible > 0 else 0.0
+    return {
+        'num_users': num_users,
+        'num_items': num_items,
+        'num_ratings': num_ratings,
+        'sparsity': sparsity,
+    }
+
+
+def print_dataset_stats():
+    stats = dataset_stats()
+    print('Number of users:', stats['num_users'])
+    print('Number of items:', stats['num_items'])
+    print('Number of ratings:', stats['num_ratings'])
+    print('Sparsity: {:.6f}'.format(stats['sparsity']))
+
+
 print('Number of items:', len(items_list))
 print('Number of users:', len(user_id_list))
 print('Number of training ratings:', sum(len(train_data[u]) for u in train_data))
