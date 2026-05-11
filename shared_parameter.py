@@ -15,7 +15,7 @@ public_key, private_key = paillier.generate_paillier_keypair(n_length=1024, )
 
 dataset = 'ml-100k'
 
-hiperparam = 50
+hiperparam = 30
 
 k = 10  # for precision@k and NDCG@k
 

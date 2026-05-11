@@ -3,7 +3,7 @@ import time
 import numpy as np
 
 from shared_parameter import *
-from load_data import train_data, test_data, user_id_list, item_id_list, print_dataset_stats
+from load_data import train_data, test_data, user_id_list, item_id_list, print_dataset_stats, global_train
 
 def user_update(single_user_vector, user_rating_list, item_vector):
     gradient = {}
@@ -35,15 +35,19 @@ def loss():
             errors.append(error)
     return np.mean(np.array(errors, dtype=np.float128))
 
-#tirei a parte de cache e tempo de transmissao pq sim
 if __name__ == '__main__':
     time_dataset = time.time()
 
     print_dataset_stats()
 
-    # Init process (caba tava na preguiça)
+    user_id_to_idx = {uid: i for i, uid in enumerate(user_id_list)}
+
+    # Init process (caba tava na preguica)
     user_vector = np.zeros([len(user_id_list), hidden_dim]) + 0.01
     item_vector = np.zeros([len(item_id_list), hidden_dim]) + 0.01
+
+    precision_list = []
+    ndcg_list     = []
 
     #treino
     for iteration in range(max_iteration):
@@ -52,39 +56,48 @@ if __name__ == '__main__':
 
         # Step 2 User updates
         user_time_list = []
-        for i in range(len(user_id_list)):
+        for uid, item_id, rate, timestamp in global_train:
             t = time.time()
 
-            uid = user_id_list[i]
-            interactions = train_data[uid]
+            user_idx = user_id_to_idx[uid]
+            
+            relevant_items = set(
+                iid for iid, r, _ in test_data[uid] if r >= 4
+            )
 
-            for j, (item_id, rate, timestamp) in enumerate(interactions):
-                if j < len(interactions) - 1:
-                    next_item_id = interactions[j + 1][0]
-                    
-                    interacted = set(iid for iid, _, _ in interactions)
-                    neg_candidates = [iid for iid in range(len(item_id_list)) if iid not in interacted]
-                    neg_samples = np.random.choice(neg_candidates, size=min(num_neg_samples, len(neg_candidates)), replace=False)
-                    
-                    # Positivo: próximo item real (p_ui = 1)
-                    pos_error = 1.0 - np.dot(user_vector[i], item_vector[next_item_id])
-                    user_vector[i] += lr * 2 * pos_error * item_vector[next_item_id]
-                    item_vector[next_item_id] += lr * 2 * pos_error * user_vector[i]
-                    
-                    # Negativos: itens amostrados (p_ui = 0)
-                    for neg_id in neg_samples:
-                        neg_error = 0.0 - np.dot(user_vector[i], item_vector[neg_id])
-                        user_vector[i] += lr * 2 * neg_error * item_vector[neg_id]
-                        item_vector[neg_id] += lr * 2 * neg_error * user_vector[i]
+            if len(relevant_items) > 0:
+                p = np.dot(user_vector[user_idx], item_vector.T)
+                ranked_items = np.argsort(p)[::-1][:k]
+
+                #precision
+                num_relevant_in_top_k = sum(1 for iid in ranked_items if iid in relevant_items)
+                precision_list.append(num_relevant_in_top_k / k)
+
+                #ndcg@k
+                dcg = sum(
+                    (1 if ranked_items[rank] in relevant_items else 0) / np.log2(rank + 2)
+                    for rank in range(k)
+                )
+                idcg = sum(
+                    1 / np.log2(rank + 2)
+                    for rank in range(min(k, len(relevant_items)))
+                )
+                ndcg_list.append(dcg / idcg if idcg > 0 else 0)
+
+            single_rating = [(item_id, rate, timestamp)]
+            user_vector[user_idx], gradient = user_update(
+                user_vector[user_idx], single_rating, item_vector
+            )
+            for iid, grad in gradient.items():
+                item_vector[iid] -= grad
 
             user_time_list.append(time.time() - t)
-            print('User-%s update using' % i, user_time_list[-1], 'seconds')
+            print('User-%s update using' % uid, user_time_list[-1], 'seconds')
     
         print('User Average time', np.mean(user_time_list))
         print('loss', loss())
         print('Costing', max(user_time_list), 'seconds')
 
-        # Evaluation after each iteration
         precision_list = []
         ndcg_list = []
 
@@ -93,13 +106,10 @@ if __name__ == '__main__':
             if len(test_items) == 0:
                 continue
             
-            # Get relevant items (rating >= 4)
+            #rating >= 4
             relevant_items = set(item_id for item_id, rate, _ in test_items if rate >= 4)
             
-            # Predict scores for all items
             p = np.dot(user_vector[i], item_vector.T)
-            
-            # Rank all items by predicted score descending
             ranked_items = np.argsort(p)[::-1][:k]  # top-k item indices
             
             # Precision@k
@@ -113,9 +123,8 @@ if __name__ == '__main__':
             for rank in range(k):
                 item_id = ranked_items[rank]
                 rel = 1 if item_id in relevant_items else 0
-                dcg += rel / np.log2(rank + 2)  # rank starts from 1, so rank+2
+                dcg += rel / np.log2(rank + 2)
             
-            # IDCG: ideal DCG with relevant items at top
             num_relevant = len(relevant_items)
             for rank in range(min(k, num_relevant)):
                 idcg += 1 / np.log2(rank + 2)
