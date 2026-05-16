@@ -5,7 +5,7 @@ import numpy as np
 from shared_parameter import *
 from load_data import train_data, test_data, user_id_list, item_id_list, global_train
 
-#faz temporal para cada user separado (como localmente)
+#faz temporal para cada user separado (como localmente por aparelho)
 def user_update(single_user_vector, user_rating_list, item_vector):
     gradient = {}
     for item_id, rate, _ in user_rating_list:
@@ -94,8 +94,9 @@ if __name__ == '__main__':
         user_idx = user_id_map[uid]
         
         p, n = evaluate(user_idx, uid, test_data)
-        precision_list.append(p)
-        ndcg_list.append(n)
+        if p is not None:
+            precision_list.append(p)
+            ndcg_list.append(n)
 
         single_rating = [(item_id, rate, timestamp)]
         user_vector[user_idx], gradient = user_update(user_vector[user_idx], single_rating, item_vector)
