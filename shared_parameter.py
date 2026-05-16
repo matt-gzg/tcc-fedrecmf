@@ -1,6 +1,6 @@
 from phe import paillier
 
-hidden_dim = 200
+hidden_dim = 200 #otimizar (ta demais)
 
 max_iteration = 50
 
@@ -13,10 +13,8 @@ band_width = 1 # Gb/s
 
 public_key, private_key = paillier.generate_paillier_keypair(n_length=1024, )
 
-dataset = 'ml-100k'
+dataset = 'ml-32m'
 
-hiperparam = 30
+hiperparam = 20 #dar um nome
 
-k = 10  # for precision@k and NDCG@k
-
-num_neg_samples = 4  # number of negative samples
+k = 20  #para precision e ndcg
