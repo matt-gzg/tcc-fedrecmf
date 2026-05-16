@@ -23,8 +23,7 @@ def user_update(single_user_vector, user_rating_list, item_vector):
 
     return single_user_vector, gradient
 
-#identica ao part
-def loss():
+def loss(item_vector):
     total_error = 0.0
     count = 0
 
@@ -38,11 +37,12 @@ def loss():
 
     return total_error / count
 
-def aggregate_fedavg(item_vector, accumulated_gradients):
-    #faz media simples dos gradientes acumulados pra cada item
-    for item_id, grads in accumulated_gradients.items():
-        item_vector[item_id] -= np.mean(grads, axis=0)
-    return item_vector
+#apenas copiando por enquanto (e talvez fique assim)
+def aggregate_fedavg(item_vector_global, item_vector_local, updated_items):
+    for item_id in updated_items:
+        item_vector_global[item_id] = item_vector_local[item_id].copy()
+    item_vector_local = item_vector_global.copy()
+    return item_vector_global, item_vector_local
 
 if __name__ == '__main__':
     time_dataset = time.time()
@@ -50,15 +50,17 @@ if __name__ == '__main__':
     #mapea userid pra indice
     user_id_map = {uid: i for i, uid in enumerate(user_id_list)}
     
-    #pra agregacao
-    accumulated_item_gradients = {}
+    #pra agregacao 
     rating_count = 0
 
     #init server (agora com alguma coisa decente)
     user_vector = 0.01 * np.random.randn(len(user_id_list), hidden_dim)
-    item_vector = 0.01 * np.random.randn(len(item_id_list), hidden_dim)
+    
+    #itens dos dispositivos e do server
+    item_vector_global = 0.01 * np.random.randn(len(item_id_list), hidden_dim)
+    item_vector_local  = item_vector_global.copy()
 
-    def evaluate(user_idx, uid, data):
+    def evaluate(user_idx, uid, data, item_vector):
         items = data[uid]
         if not items:
             return None, None
@@ -86,32 +88,34 @@ if __name__ == '__main__':
     #treino prequencial
     # Step 2 User updates
     precision_list, ndcg_list = [], []
+    
     user_time_list = []
+    updated_items = set()
 
     last_aggregation_time = time.time()
     for uid, item_id, rate, timestamp in global_train:
         t = time.time()
         user_idx = user_id_map[uid]
         
-        p, n = evaluate(user_idx, uid, test_data)
+        p, n = evaluate(user_idx, uid, test_data, item_vector_local)
         if p is not None:
             precision_list.append(p)
             ndcg_list.append(n)
 
         single_rating = [(item_id, rate, timestamp)]
-        user_vector[user_idx], gradient = user_update(user_vector[user_idx], single_rating, item_vector)
+        user_vector[user_idx], gradient = user_update(user_vector[user_idx], single_rating, item_vector_local)
 
         for iid, grad in gradient.items():
-            if iid not in accumulated_item_gradients:
-                accumulated_item_gradients[iid] = []
-            accumulated_item_gradients[iid].append(grad)
+            item_vector_local[iid] -= grad
+            updated_items.add(iid)
 
         rating_count += 1
 
         if rating_count % aggregation_int == 0:
-            item_vector, accumulated_item_gradients = aggregate_fedavg(item_vector, accumulated_item_gradients), {}
+            item_vector_global, item_vector_local = aggregate_fedavg(item_vector_global, item_vector_local, updated_items)
+            updated_items = set()
             aggregation_time = time.time() - last_aggregation_time
-            print(f'[Agregação #{rating_count // aggregation_int}] ratings={rating_count} | loss={loss():.6f} | tempo={aggregation_time:.2f}s')
+            print(f'[Agregação #{rating_count // aggregation_int}] ratings={rating_count} | loss={loss(item_vector_local):.6f} | tempo={aggregation_time:.2f}s')
             last_aggregation_time = time.time()
 
         user_time_list.append(time.time() - t)
@@ -120,13 +124,13 @@ if __name__ == '__main__':
     print('User Average time', np.mean(user_time_list))
     print('Prequential Precision@{}: {:.4f}'.format(k, np.mean(precision_list)))
     print('Prequential NDCG@{}: {:.4f}'.format(k, np.mean(ndcg_list)))
-    print('loss', loss())
+    print('loss', loss(item_vector_local))
     print('Costing', max(user_time_list), 'seconds')
 
     final_precision_list, final_ndcg_list = [], []
 
     for i, uid in enumerate(user_id_list):
-        p, n = evaluate(i, uid, test_data)
+        p, n = evaluate(i, uid, test_data, item_vector_global)
         if p is not None:
             final_precision_list.append(p)
             final_ndcg_list.append(n)
