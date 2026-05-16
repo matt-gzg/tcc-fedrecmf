@@ -38,18 +38,35 @@ def loss():
 
     return total_error / count
 
+def aggregate_fedavg(item_vector, accumulated_gradients):
+    #faz media simples dos gradientes acumulados pra cada item
+    for item_id, grads in accumulated_gradients.items():
+        item_vector[item_id] -= np.mean(grads, axis=0)
+    return item_vector
+
 if __name__ == '__main__':
     time_dataset = time.time()
 
-    user_id_to_idx = {uid: i for i, uid in enumerate(user_id_list)}
+    #mapea userid pra indice
+    user_id_map = {uid: i for i, uid in enumerate(user_id_list)}
+    
+    #pra agregacao
+    accumulated_item_gradients = {}
+    rating_count = 0
 
-    # Init process (caba tava na preguica)
-    user_vector = np.zeros([len(user_id_list), hidden_dim]) + 0.01
-    item_vector = np.zeros([len(item_id_list), hidden_dim]) + 0.01
+    #init server (agora com alguma coisa decente)
+    user_vector = 0.01 * np.random.randn(len(user_id_list), hidden_dim)
+    item_vector = 0.01 * np.random.randn(len(item_id_list), hidden_dim)
 
     def evaluate(user_idx, uid, data):
         items = data[uid]
+        if not items:
+            return None, None
+        
         relevant_items = set(item_id for item_id, rate, _ in items if rate >= 4)
+        if not relevant_items:
+            return None, None
+        
         p = np.dot(user_vector[user_idx], item_vector.T)
         ranked_items =  np.argsort(p)[::-1][:k]
         num_relevant = len(relevant_items)
@@ -70,9 +87,11 @@ if __name__ == '__main__':
     # Step 2 User updates
     precision_list, ndcg_list = [], []
     user_time_list = []
+
+    last_aggregation_time = time.time()
     for uid, item_id, rate, timestamp in global_train:
         t = time.time()
-        user_idx = user_id_to_idx[uid]
+        user_idx = user_id_map[uid]
         
         p, n = evaluate(user_idx, uid, test_data)
         precision_list.append(p)
@@ -80,9 +99,19 @@ if __name__ == '__main__':
 
         single_rating = [(item_id, rate, timestamp)]
         user_vector[user_idx], gradient = user_update(user_vector[user_idx], single_rating, item_vector)
-        
+
         for iid, grad in gradient.items():
-            item_vector[iid] -= grad
+            if iid not in accumulated_item_gradients:
+                accumulated_item_gradients[iid] = []
+            accumulated_item_gradients[iid].append(grad)
+
+        rating_count += 1
+
+        if rating_count % aggregation_int == 0:
+            item_vector, accumulated_item_gradients = aggregate_fedavg(item_vector, accumulated_item_gradients), {}
+            aggregation_time = time.time() - last_aggregation_time
+            print(f'[Agregação #{rating_count // aggregation_int}] ratings={rating_count} | loss={loss():.6f} | tempo={aggregation_time:.2f}s')
+            last_aggregation_time = time.time()
 
         user_time_list.append(time.time() - t)
         print('User-%s update using' % uid, user_time_list[-1], 'seconds')
@@ -97,9 +126,10 @@ if __name__ == '__main__':
 
     for i, uid in enumerate(user_id_list):
         p, n = evaluate(i, uid, test_data)
-        final_precision_list.append(p)
-        final_ndcg_list.append(n)
+        if p is not None:
+            final_precision_list.append(p)
+            final_ndcg_list.append(n)
 
-    print('Precision@{}: {:.4f}'.format(k, np.mean(precision_list)))
-    print('NDCG@{}: {:.4f}'.format(k, np.mean(ndcg_list)))
+    print('Precision@{}: {:.4f}'.format(k, np.mean(final_precision_list)))
+    print('NDCG@{}: {:.4f}'.format(k, np.mean(final_ndcg_list)))
     print('Total time', time.time() - time_dataset, 'seconds')
