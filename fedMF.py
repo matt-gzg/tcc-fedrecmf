@@ -108,6 +108,7 @@ if __name__ == '__main__':
     updated_items = set()
     rating_count = 0
     last_aggregation_time = time.time()
+    item_to_users = {}
 
     for uid, item_id, rate, timestamp in global_train:
         t = time.time()
@@ -115,11 +116,6 @@ if __name__ == '__main__':
 
         if item_id not in item_vectors_local[uid]:
             item_vectors_local[uid][item_id] = item_vector_global[item_id].copy()
-        
-        p, n = evaluate(user_idx, uid, test_data, item_vector_global)
-        if p is not None:
-            precision_list.append(p)
-            ndcg_list.append(n)
 
         single_rating = [(item_id, rate, timestamp)]
         user_vector[user_idx], gradient = user_update(user_vector[user_idx], single_rating, item_vectors_local[uid])
@@ -131,10 +127,25 @@ if __name__ == '__main__':
         for iid, grad in gradient.items():
             item_vectors_local[uid][iid] -= grad
             updated_items.add(iid)
+            if iid not in item_to_users:
+                item_to_users[iid] = set()
+            item_to_users[iid].add(uid)
 
         if rating_count % aggregation_int == 0:
+            active_users = set()
+            for users in item_to_users.values():
+                active_users.update(users)
+
+            for uid_eval in active_users:
+                user_idx_eval = user_id_map[uid_eval]
+                p, n = evaluate(user_idx_eval, uid_eval, test_data, item_vector_global)
+                if p is not None:
+                    precision_list.append(p)
+                    ndcg_list.append(n)
+
             item_vector_global, item_vectors_local = aggregate_fedavg(item_vector_global, item_vectors_local, rating_counts, updated_items)
             updated_items = set()
+            item_to_users = {}
             aggregation_time = time.time() - last_aggregation_time
             agg = f'[Aggregation #{rating_count // aggregation_int}] ratings={rating_count} | loss={loss(item_vector_global):.6f} | time={aggregation_time:.2f}s'
             log_file.write(agg + '\n')
