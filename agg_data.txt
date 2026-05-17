@@ -1,0 +1,12 @@
+[Aggregation #1] ratings=5000 | loss=0.493713 | time=1.43s
+[Aggregation #2] ratings=10000 | loss=0.493692 | time=1.50s
+[Aggregation #3] ratings=15000 | loss=0.493676 | time=1.50s
+[Aggregation #4] ratings=20000 | loss=0.493658 | time=1.60s
+[Aggregation #5] ratings=25000 | loss=0.493641 | time=1.68s
+[Aggregation #6] ratings=30000 | loss=0.493625 | time=1.58s
+[Aggregation #7] ratings=35000 | loss=0.493608 | time=1.62s
+[Aggregation #8] ratings=40000 | loss=0.493592 | time=1.62s
+[Aggregation #9] ratings=45000 | loss=0.493571 | time=1.65s
+[Aggregation #10] ratings=50000 | loss=0.493549 | time=1.64s
+[Aggregation #11] ratings=55000 | loss=0.493528 | time=1.56s
+[Aggregation #12] ratings=60000 | loss=0.493512 | time=1.78s

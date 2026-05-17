@@ -38,29 +38,45 @@ def loss(item_vector):
     return total_error / count
 
 #apenas copiando por enquanto (e talvez fique assim)
-def aggregate_fedavg(item_vector_global, item_vector_local, updated_items):
+def aggregate_fedavg(item_vector_global, item_vectors_local, rating_counts, updated_items):
     for item_id in updated_items:
-        item_vector_global[item_id] = item_vector_local[item_id].copy()
-    item_vector_local = item_vector_global.copy()
-    return item_vector_global, item_vector_local
+        total_ratings = 0
+        weighted_sum = np.zeros(hidden_dim)
+
+        for uid in item_vectors_local:
+            if item_id in item_vectors_local[uid]:
+                n = rating_counts[uid]
+                weighted_sum += n * item_vectors_local[uid][item_id]
+                total_ratings += n
+
+        if total_ratings > 0:
+            item_vector_global[item_id] = weighted_sum / total_ratings
+
+    for uid in item_vectors_local:
+        for item_id in updated_items:
+            if item_id in item_vectors_local[uid]:
+                item_vectors_local[uid][item_id] = item_vector_global[item_id].copy()
+
+    return item_vector_global, item_vectors_local
 
 if __name__ == '__main__':
     time_dataset = time.time()
+    log_file = open('agg_data.txt', 'w')
 
     #mapea userid pra indice
     user_id_map = {uid: i for i, uid in enumerate(user_id_list)}
     
-    #pra agregacao 
-    rating_count = 0
+    #pra agregacao ratings por usuario pra ponderar
+    rating_counts = {uid: 0 for uid in user_id_list}
 
     #init server (agora com alguma coisa decente)
     user_vector = 0.01 * np.random.randn(len(user_id_list), hidden_dim)
     
     #itens dos dispositivos e do server
     item_vector_global = 0.01 * np.random.randn(len(item_id_list), hidden_dim)
-    item_vector_local  = item_vector_global.copy()
+    item_vectors_local = {uid: {} for uid in user_id_list}
 
-    def evaluate(user_idx, uid, data, item_vector):
+    def evaluate(user_idx, uid, data, item_vector_global):
         items = data[uid]
         if not items:
             return None, None
@@ -69,7 +85,7 @@ if __name__ == '__main__':
         if not relevant_items:
             return None, None
         
-        p = np.dot(user_vector[user_idx], item_vector.T)
+        p = np.dot(user_vector[user_idx], item_vector_global.T)
         ranked_items =  np.argsort(p)[::-1][:k]
         num_relevant = len(relevant_items)
 
@@ -88,43 +104,50 @@ if __name__ == '__main__':
     #treino prequencial
     # Step 2 User updates
     precision_list, ndcg_list = [], []
-    
     user_time_list = []
     updated_items = set()
-
+    rating_count = 0
     last_aggregation_time = time.time()
+
     for uid, item_id, rate, timestamp in global_train:
         t = time.time()
         user_idx = user_id_map[uid]
+
+        if item_id not in item_vectors_local[uid]:
+            item_vectors_local[uid][item_id] = item_vector_global[item_id].copy()
         
-        p, n = evaluate(user_idx, uid, test_data, item_vector_local)
+        p, n = evaluate(user_idx, uid, test_data, item_vector_global)
         if p is not None:
             precision_list.append(p)
             ndcg_list.append(n)
 
         single_rating = [(item_id, rate, timestamp)]
-        user_vector[user_idx], gradient = user_update(user_vector[user_idx], single_rating, item_vector_local)
+        user_vector[user_idx], gradient = user_update(user_vector[user_idx], single_rating, item_vectors_local[uid])
 
-        for iid, grad in gradient.items():
-            item_vector_local[iid] -= grad
-            updated_items.add(iid)
-
+        rating_counts[uid] += 1
+        updated_items.add(item_id)
         rating_count += 1
 
+        for iid, grad in gradient.items():
+            item_vectors_local[uid][iid] -= grad
+            updated_items.add(iid)
+
         if rating_count % aggregation_int == 0:
-            item_vector_global, item_vector_local = aggregate_fedavg(item_vector_global, item_vector_local, updated_items)
+            item_vector_global, item_vectors_local = aggregate_fedavg(item_vector_global, item_vectors_local, rating_counts, updated_items)
             updated_items = set()
             aggregation_time = time.time() - last_aggregation_time
-            print(f'[Agregação #{rating_count // aggregation_int}] ratings={rating_count} | loss={loss(item_vector_local):.6f} | tempo={aggregation_time:.2f}s')
+            agg = f'[Aggregation #{rating_count // aggregation_int}] ratings={rating_count} | loss={loss(item_vector_global):.6f} | time={aggregation_time:.2f}s'
+            log_file.write(agg + '\n')
+            log_file.flush()
             last_aggregation_time = time.time()
 
         user_time_list.append(time.time() - t)
         print('User-%s update using' % uid, user_time_list[-1], 'seconds')
 
     print('User Average time', np.mean(user_time_list))
-    print('Prequential Precision@{}: {:.4f}'.format(k, np.mean(precision_list)))
-    print('Prequential NDCG@{}: {:.4f}'.format(k, np.mean(ndcg_list)))
-    print('loss', loss(item_vector_local))
+    print('Train Precision@{}: {:.4f}'.format(k, np.mean(precision_list)))
+    print('Train NDCG@{}: {:.4f}'.format(k, np.mean(ndcg_list)))
+    print('loss', loss(item_vector_global))
     print('Costing', max(user_time_list), 'seconds')
 
     final_precision_list, final_ndcg_list = [], []
