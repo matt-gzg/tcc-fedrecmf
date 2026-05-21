@@ -15,11 +15,9 @@ def user_update(single_user_vector, user_rating_list, item_vector):
 
         for _ in range(hiperparam):
             error = p_ui - np.dot(single_user_vector, v)
-            single_user_vector = single_user_vector - lr * (-2 * p_ui * error * v + 2 * reg_u * single_user_vector)
-            gradient[item_id] = lr * (-2 * p_ui * error * single_user_vector + 2 * reg_v * v)
-
-        error = p_ui - np.dot(single_user_vector, v)   
-        gradient[item_id] = lr * (-2 * p_ui * error * single_user_vector + 2 * reg_v * v)
+            single_user_vector = single_user_vector - lr * (-2 * error * v + 2 * reg_u * single_user_vector)
+            
+        gradient[item_id] = lr * (-2 * error * single_user_vector + 2 * reg_v * v)
 
     return single_user_vector, gradient
 
@@ -37,7 +35,7 @@ def loss(item_vector):
 
     return total_error / count
 
-#apenas copiando por enquanto (e talvez fique assim)
+#fazendo por ponderacao
 def aggregate_fedavg(item_vector_global, item_vectors_local, rating_counts, updated_items):
     for item_id in updated_items:
         total_ratings = 0
