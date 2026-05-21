@@ -2,7 +2,7 @@ import os
 import pandas as pd
 from shared_parameter import dataset
 
-if dataset == 'ml-100k' or dataset == 'ml-32m':
+if dataset == 'ml-100k' or dataset == 'ml-32m' or dataset == 'ml-test':
     current_path = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(current_path, dataset)
     dtype = {'userId': str, 'movieId': int, 'rating': float, 'timestamp': int}
@@ -19,36 +19,36 @@ df.reset_index(drop=True, inplace=True)
 user_id_list = sorted(df['userId'].unique(), key=lambda x: int(x))
 item_id_list = sorted(df['movieId'].unique())
 
-user_id_set  = set(user_id_list)
 #treseta os indices de 0 a n-1
 item_id_map  = {item_id: idx for idx, item_id in enumerate(item_id_list)}
 
 #cria uma nova coluna
 df['item_idx'] = df['movieId'].map(item_id_map)
 
-#faz o dicionario em tuplas
-ratings_dict = {}
-for uid, group in df.groupby('userId', sort=False):
-    ratings_dict[uid] = list(
-        zip(group['item_idx'], group['rating'], group['timestamp'])
-    )
-#(item_idx, rating, timestamp)
-
 #train/validation/test
 train_ratio = 0.8
 validation_ratio = 0.2
-train_data = {}
-validation_data = {}
-test_data  = {}
 
-for uid in user_id_list:
-    entries = ratings_dict[uid]
-    n = len(entries)
-    train_val_end = max(1, int(n * train_ratio))
-    train_end = max(1, int(train_val_end * (1 - validation_ratio)))  #20% do treino para validacao
-    train_data[uid] = entries[:train_end]
-    validation_data[uid] = entries[train_end:train_val_end]
-    test_data[uid] = entries[train_val_end:]
+n = len(df)
+train_val_end = max(1, int(n * train_ratio))
+train_end     = max(1, int(train_val_end * (1 - validation_ratio)))
+
+train_df      = df.iloc[:train_end]
+validation_df = df.iloc[train_end:train_val_end]
+test_df       = df.iloc[train_val_end:]
+
+train_data      = {uid: [] for uid in user_id_list}
+validation_data = {uid: [] for uid in user_id_list}
+test_data       = {uid: [] for uid in user_id_list}
+
+for _, row in train_df.iterrows():
+    train_data[row['userId']].append((row['item_idx'], row['rating'], row['timestamp']))
+
+for _, row in validation_df.iterrows():
+    validation_data[row['userId']].append((row['item_idx'], row['rating'], row['timestamp']))
+
+for _, row in test_df.iterrows():
+    test_data[row['userId']].append((row['item_idx'], row['rating'], row['timestamp']))
 
 global_train = [
     (uid, item_idx, rate, timestamp)
