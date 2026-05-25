@@ -1,9 +1,20 @@
 import time
 import numpy as np
+import logging
 
 from shared_parameter import *
-from load_data import (train_data, test_data, user_id_list, item_id_list, global_train)
+#from load_data import (train_data, test_data, user_id_list, item_id_list, global_train)
+from load_from_cache import (train_data, validation_data, test_data, user_id_list, item_id_list, global_train, global_validation, global_test)
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s | %(levelname)s | %(message)s',
+    handlers=[
+        logging.FileHandler('training.log', mode='w'),
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 def user_update(user_vector, item_id, rate, v):
     gradient = {}
@@ -30,7 +41,7 @@ def aggregate_fedavg(items_matrix_global, items_matrix_local, interact_count, up
             items_matrix_global[item_id] = weighted_sum / total_ratings
 
             for uid in item_users_updated[item_id]:
-                items_matrix_local[uid][item_id] = (items_matrix_global[item_id].copy())
+                items_matrix_local[uid][item_id] = items_matrix_global[item_id].copy()
 
     return items_matrix_global, items_matrix_local
 
@@ -73,8 +84,7 @@ def evaluate(user_idx, uid, data, users_matrix, items_matrix_global, items_matri
     return hit_rate, ndcg
 
 if __name__ == '__main__':
-    time_dataset = time.time()
-    log_file = open('agg_data.txt', 'w')
+    time_dataset = time.perf_counter()
 
     users_matrix = 0.1 * np.random.randn(len(user_id_list), hidden_dim)
     items_matrix_global = 0.1 * np.random.randn(len(item_id_list), hidden_dim)
@@ -85,12 +95,13 @@ if __name__ == '__main__':
     prequential_hits = []
     updated_items = set()
     obs_count = 0
-    last_aggregation_time = time.time()
+    last_aggregation_time = time.perf_counter()
     interact_count = {uid: 0 for uid in user_id_list}
     item_users_updated = {}
 
+    logger.info('Começou o fluxo')
     for uid, item_id, rating, timestamp in global_train:
-        t = time.time()
+        t = time.perf_counter()
 
         obs_count += 1
         interact_count[uid] += 1
@@ -118,6 +129,16 @@ if __name__ == '__main__':
             item_users_updated[item_id] = set()
         item_users_updated[item_id].add(uid)
 
+        user_time_list.append(time.perf_counter() - t)
+
+        if obs_count % 10000 == 0:
+            logger.info(
+                f'Processed={obs_count} | '
+                f'AvgUserTime={np.mean(user_time_list[-10000:]):.6f}s | '
+                f'TotalTime={time.perf_counter() - time_dataset:.6f}s | '
+                f'PreqHR@{k}={np.mean(prequential_hits[-10000:]):.4f}'
+        )
+
         if obs_count % aggregation_int == 0:
             hit_rate = np.mean(prequential_hits[-aggregation_int:])
 
@@ -126,19 +147,19 @@ if __name__ == '__main__':
             item_users_updated = {}
             updated_items = set()
             interact_count = {uid: 0 for uid in user_id_list}
-            aggregation_time = time.time() - last_aggregation_time
-            agg = (
-                f'[Aggregation #{obs_count // aggregation_int}] '
-                f'ratings={obs_count} | '
-                f'HR@{k}={hit_rate:.4f} | '
-                f'time={aggregation_time:.2f}s'
-            )
-            print(agg)
-            log_file.write(agg + '\n')
-            log_file.flush()
-            last_aggregation_time = time.time()
 
-        user_time_list.append(time.time() - t)
+            aggregation_time = time.perf_counter() - last_aggregation_time
+            avg_user_time = np.mean(user_time_list[-aggregation_int:])
+            throughput = aggregation_int / aggregation_time
+
+            logger.info(
+                f'[Agg {obs_count // aggregation_int}] '
+                f'HR@{k}={hit_rate:.4f} | '
+                f'AvgUser={avg_user_time:.6f}s | '
+                f'Throughput={throughput:.2f} interactions/s | '
+                f'Time={aggregation_time:.2f}s'
+            )
+            last_aggregation_time = time.perf_counter()
 
     final_hr_list = []
     final_ndcg_list = []
@@ -149,8 +170,8 @@ if __name__ == '__main__':
             final_hr_list.append(hr)
             final_ndcg_list.append(n)
 
-    print(f'Prequencial Hit@{k}: 'f'{np.mean(prequential_hits):.4f}')
-    print('HR@{}: {:.4f}'.format(k, np.mean(final_hr_list)))
-    print('NDCG@{}: {:.4f}'.format(k, np.mean(final_ndcg_list)))
-    print('User Average Time: {:.4f}'.format(np.mean(user_time_list)))
-    print('Total Time: {:.4f} seconds'.format(time.time() - time_dataset))
+    logger.info(f'Prequential Hit@{k}: {np.mean(prequential_hits):.4f}')
+    logger.info(f'HR@{k}: {np.mean(final_hr_list):.4f}')
+    logger.info(f'NDCG@{k}: {np.mean(final_ndcg_list):.4f}')
+    logger.info(f'User Average Time: {np.mean(user_time_list):.6f}')
+    logger.info(f'Total Time: {time.perf_counter() - time_dataset:.4f} seconds')
