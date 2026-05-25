@@ -8,6 +8,8 @@ ml-test/
 __pycache__/
 notes.txt
 agg_data.txt
+training.log
+ml-32m_cache.pkl
 
 geleia.py
 fedPMF.py
