@@ -29,6 +29,16 @@ print('Sorting interactions...')
 df.sort_values('timestamp', inplace=True)
 df.reset_index(drop=True, inplace=True)
 
+print('Filtering positive interactions...')
+
+df = df[df['rating'] >= 4].copy()
+
+print(f'Remaining interactions: {len(df)}')
+
+print('Removing rating column...')
+
+df = df[['userId', 'movieId', 'timestamp']]
+
 print('Building mappings...')
 
 user_id_list = sorted(df['userId'].unique(), key=lambda x: int(x))
@@ -60,19 +70,13 @@ validation_data = {uid: [] for uid in user_id_list}
 test_data = {uid: [] for uid in user_id_list}
 
 for row in train_df.itertuples(index=False):
-    train_data[row.userId].append(
-        (row.item_idx, row.rating, row.timestamp)
-    )
+    train_data[row.userId].append((row.item_idx, row.timestamp))
 
 for row in validation_df.itertuples(index=False):
-    validation_data[row.userId].append(
-        (row.item_idx, row.rating, row.timestamp)
-    )
+    validation_data[row.userId].append((row.item_idx, row.timestamp))
 
 for row in test_df.itertuples(index=False):
-    test_data[row.userId].append(
-        (row.item_idx, row.rating, row.timestamp)
-    )
+    test_data[row.userId].append((row.item_idx, row.timestamp))
 
 del train_df
 del validation_df

@@ -16,9 +16,9 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-def user_update(user_vector, item_id, rate, v):
+def user_update(user_vector, item_id, v):
     gradient = {}
-    p_ui = 1.0 if rate >= 4 else 0.0
+    p_ui = 1.0
 
     for _ in range(hiperparam):
         error = p_ui - np.dot(user_vector, v)
@@ -29,16 +29,16 @@ def user_update(user_vector, item_id, rate, v):
 
 def aggregate_fedavg(items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated):
     for item_id in updated_items:
-        total_ratings = 0
+        total_interacs = 0
         weighted_sum = np.zeros(hidden_dim)
 
         for uid in item_users_updated[item_id]:
             n = interact_count[uid]
             weighted_sum += (n * items_matrix_local[uid][item_id])
-            total_ratings += n
+            total_interacs += n
 
-        if total_ratings > 0:
-            items_matrix_global[item_id] = weighted_sum / total_ratings
+        if total_interacs > 0:
+            items_matrix_global[item_id] = weighted_sum / total_interacs
 
             for uid in item_users_updated[item_id]:
                 items_matrix_local[uid][item_id] = items_matrix_global[item_id].copy()
@@ -51,7 +51,7 @@ def evaluate(user_idx, uid, data, users_matrix, items_matrix_global, items_matri
     if not items:
         return None, None
 
-    relevant_items = set(item_id for item_id, rate, _ in items if rate >= 4)
+    relevant_items = set(item_id for item_id, _ in items)
 
     if not relevant_items:
         return None, None
@@ -61,7 +61,7 @@ def evaluate(user_idx, uid, data, users_matrix, items_matrix_global, items_matri
     for iid, local_vec in items_matrix_local[uid].items():
         p[iid] = np.dot(users_matrix[user_idx], local_vec)
 
-    seen_items = set(iid for iid, _, _ in train_data[uid])
+    seen_items = set(iid for iid, _ in train_data[uid])
     p[list(seen_items)] = -np.inf
     ranked_items = np.argsort(p)[::-1][:k]
     num_relevant = len(relevant_items)
@@ -98,9 +98,11 @@ if __name__ == '__main__':
     last_aggregation_time = time.perf_counter()
     interact_count = {uid: 0 for uid in user_id_list}
     item_users_updated = {}
+    aggregation_time_list = []
+    last_log_time = time.perf_counter()
 
     logger.info('Começou o fluxo')
-    for uid, item_id, rating, timestamp in global_train:
+    for uid, item_id, timestamp in global_train:
         t = time.perf_counter()
 
         obs_count += 1
@@ -113,7 +115,11 @@ if __name__ == '__main__':
         for iid, local_vec in items_matrix_local[uid].items():
             p[iid] = np.dot(users_matrix[user_index], local_vec)
 
-        top_k = np.argsort(p)[::-1][:k]
+        seen_items = set(iid for iid, _ in train_data[uid])
+        if seen_items:
+            p[list(seen_items)] = -np.inf
+
+        top_k = np.argpartition(p, -k)[-k:]
         prequential_hits.append(1 if item_id in top_k else 0)
 
         if item_id not in items_matrix_local[uid]:
@@ -121,7 +127,7 @@ if __name__ == '__main__':
 
         current_item = items_matrix_local[uid][item_id]
 
-        users_matrix[user_index], gradient = user_update(users_matrix[user_index], item_id, rating, current_item)
+        users_matrix[user_index], gradient = user_update(users_matrix[user_index], item_id, current_item)
         items_matrix_local[uid][item_id] -= gradient[item_id]
         updated_items.add(item_id)
 
@@ -132,17 +138,25 @@ if __name__ == '__main__':
         user_time_list.append(time.perf_counter() - t)
 
         if obs_count % 10000 == 0:
+            current_time = time.perf_counter()
+            block_time = (current_time - last_log_time)
             logger.info(
                 f'Processed={obs_count} | '
                 f'AvgUserTime={np.mean(user_time_list[-10000:]):.6f}s | '
+                f'BlockTime={block_time:.6f}s | '
                 f'TotalTime={time.perf_counter() - time_dataset:.6f}s | '
                 f'PreqHR@{k}={np.mean(prequential_hits[-10000:]):.4f}'
-        )
+            )
+            last_log_time = current_time   
 
         if obs_count % aggregation_int == 0:
+            aggregation_start = time.perf_counter()
             hit_rate = np.mean(prequential_hits[-aggregation_int:])
 
             items_matrix_global, items_matrix_local = aggregate_fedavg(items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated)
+
+            aggregation_elapsed = time.perf_counter() - aggregation_start
+            aggregation_time_list.append(aggregation_elapsed)
 
             item_users_updated = {}
             updated_items = set()
@@ -155,7 +169,7 @@ if __name__ == '__main__':
             logger.info(
                 f'[Agg {obs_count // aggregation_int}] '
                 f'HR@{k}={hit_rate:.4f} | '
-                f'AvgUser={avg_user_time:.6f}s | '
+                f'AggTime={aggregation_elapsed:.6f}s | '
                 f'Throughput={throughput:.2f} interactions/s | '
                 f'Time={aggregation_time:.2f}s'
             )
@@ -174,4 +188,6 @@ if __name__ == '__main__':
     logger.info(f'HR@{k}: {np.mean(final_hr_list):.4f}')
     logger.info(f'NDCG@{k}: {np.mean(final_ndcg_list):.4f}')
     logger.info(f'User Average Time: {np.mean(user_time_list):.6f}')
+    logger.info(f'Total Aggregations: {len(aggregation_time_list)}')
+    logger.info(f'Average Aggregation Time: {np.mean(aggregation_time_list):.6f}s')
     logger.info(f'Total Time: {time.perf_counter() - time_dataset:.4f} seconds')
