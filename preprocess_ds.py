@@ -3,7 +3,7 @@ import pickle
 import pandas as pd
 import time
 
-from shared_parameter import dataset
+from shared_parameter import dataset, sample_ratio
 
 start = time.perf_counter()
 
@@ -34,6 +34,15 @@ print('Filtering positive interactions...')
 df = df[df['rating'] >= 4].copy()
 
 print(f'Remaining interactions: {len(df)}')
+
+print(f'Using only {sample_ratio*100:.0f} % of dataset...')
+
+sample_size = max(1, int(len(df) * sample_ratio))
+df = df.iloc[:sample_size].copy()
+
+print(f'Using {sample_size} interactions '
+    f'({sample_ratio * 100:.0f}% of filtered dataset)'
+)
 
 print('Removing rating column...')
 
