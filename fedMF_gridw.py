@@ -10,13 +10,13 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s | %(levelname)s | %(message)s',
     handlers=[
-        logging.FileHandler('training.log', mode='w'),
+        logging.FileHandler('training.log', mode='a'),
     ]
 )
 
 logger = logging.getLogger(__name__)
 
-def user_update(user_vector, item_id, v):
+def user_update(user_vector, item_id, v, lr, reg_u, reg_v, iter):
     gradient = {}
     p_ui = 1.0
 
@@ -27,7 +27,7 @@ def user_update(user_vector, item_id, v):
 
     return user_vector, gradient
 
-def aggregate_fedavg(items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated):
+def aggregate_fedavg(items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated, hidden_dim):
     for item_id in updated_items:
         total_interacs = 0
         weighted_sum = np.zeros(hidden_dim)
@@ -49,12 +49,12 @@ def evaluate(user_idx, uid, data, users_matrix, items_matrix_global, items_matri
     items = data[uid]
 
     if not items:
-        return None, None
+        return None, None, None, None
 
     relevant_items = set(item_id for item_id, _ in items)
 
     if not relevant_items:
-        return None, None
+        return None, None, None, None
 
     p = np.dot(users_matrix[user_idx], items_matrix_global.T)
 
@@ -79,12 +79,13 @@ def evaluate(user_idx, uid, data, users_matrix, items_matrix_global, items_matri
             idcg += 1 / np.log2(rank + 2)
 
     hit_rate = 1.0 if hits > 0 else 0.0
+    recall = hits / num_relevant if num_relevant > 0 else 0.0
     ndcg_ai = dcg / idcg if idcg > 0 else 0.0
     ndcg_ap = dcg / num_relevant if num_relevant > 0 else 0.0
 
-    return hit_rate, ndcg_ai, ndcg_ap
+    return hit_rate, recall, ndcg_ai, ndcg_ap
 
-def process_interaction(uid, item_id, user_id_map, users_matrix, items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated):
+def process_interaction(uid, item_id, user_id_map, users_matrix, items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated, lr, reg_u, reg_v, iter):
     interact_count[uid] += 1
     user_index = user_id_map[uid]
 
@@ -93,7 +94,7 @@ def process_interaction(uid, item_id, user_id_map, users_matrix, items_matrix_gl
 
     current_item = items_matrix_local[uid][item_id]
 
-    users_matrix[user_index], gradient = user_update(users_matrix[user_index], item_id, current_item)
+    users_matrix[user_index], gradient = user_update(users_matrix[user_index], item_id, current_item, lr, reg_u, reg_v, iter)
     items_matrix_local[uid][item_id] -= gradient[item_id]
     updated_items.add(item_id)
 
@@ -101,7 +102,7 @@ def process_interaction(uid, item_id, user_id_map, users_matrix, items_matrix_gl
         item_users_updated[item_id] = set()
     item_users_updated[item_id].add(uid)
 
-def warm_up(global_train, warm_ratio, user_id_map, users_matrix, items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated, seen_items_online):
+def warm_up(global_train, warm_ratio, user_id_map, users_matrix, items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated, seen_items_online, lr, reg_u, reg_v, iter):
     if warm_ratio <= 0:
         return 0
 
@@ -112,14 +113,14 @@ def warm_up(global_train, warm_ratio, user_id_map, users_matrix, items_matrix_gl
     )
 
     for uid, item_id, _ in global_train[:warm_size]:
-        process_interaction(uid, item_id, user_id_map, users_matrix, items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated)
+        process_interaction(uid, item_id, user_id_map, users_matrix, items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated, lr, reg_u, reg_v, iter)
         seen_items_online[uid].add(item_id)
 
     logger.info('Warm-up finished')
 
     return warm_size
 
-def main():
+def main(hidden_dim, reg_u, reg_v, lr, iter):
     time_dataset = time.perf_counter()
 
     users_matrix = 0.1 * np.random.randn(len(user_id_list), hidden_dim)
@@ -138,15 +139,14 @@ def main():
     aggregation_time_list = []
     last_log_time = time.perf_counter()
 
-    warm_size = warm_up(global_train, warm_ratio, user_id_map, users_matrix, items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated, seen_items_online)
+    warm_size = warm_up(global_train, warm_ratio, user_id_map, users_matrix, items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated, seen_items_online, lr, reg_u, reg_v, iter)
     if warm_size > 0:
-        items_matrix_global, items_matrix_local = aggregate_fedavg(items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated)
+        items_matrix_global, items_matrix_local = aggregate_fedavg(items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated, hidden_dim)
 
         updated_items = set()
         item_users_updated = {}
         interact_count = {uid: 0 for uid in user_id_list}
 
-    logger.info('Começou o fluxo')
     for uid, item_id, _ in global_train[warm_size:]:
         t = time.perf_counter()
 
@@ -165,7 +165,7 @@ def main():
         top_k = np.argpartition(p, -k)[-k:]
         prequential_hits.append(1 if item_id in top_k else 0)
 
-        process_interaction(uid, item_id, user_id_map, users_matrix, items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated)
+        process_interaction(uid, item_id, user_id_map, users_matrix, items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated, lr, reg_u, reg_v, iter)
         seen_items_online[uid].add(item_id)
 
         user_time_list.append(time.perf_counter() - t)
@@ -186,7 +186,7 @@ def main():
             aggregation_start = time.perf_counter()
             hit_rate = np.mean(prequential_hits[-aggregation_int:])
 
-            items_matrix_global, items_matrix_local = aggregate_fedavg(items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated)
+            items_matrix_global, items_matrix_local = aggregate_fedavg(items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated, hidden_dim)
 
             aggregation_elapsed = time.perf_counter() - aggregation_start
             aggregation_time_list.append(aggregation_elapsed)
@@ -210,22 +210,37 @@ def main():
     final_hr_list = []
     final_ndcg_ai_list = []
     final_ndcg_ap_list = []
+    final_recall_list = []
 
     for i, uid in enumerate(user_id_list):
-        hr, ndcg_ai, ndcg_ap = evaluate(i, uid, test_data, users_matrix, items_matrix_global, items_matrix_local, seen_items_online)
+        hr, recall, ndcg_ai, ndcg_ap = evaluate(i, uid, test_data, users_matrix, items_matrix_global, items_matrix_local, seen_items_online)
         if hr is not None:
             final_hr_list.append(hr)
+            final_recall_list.append(recall)
             final_ndcg_ai_list.append(ndcg_ai)
             final_ndcg_ap_list.append(ndcg_ap)
 
+    logger.info(f'FINAL | hidden_dim={hidden_dim} | '
+    f'reg_u={reg_u} | reg_v={reg_v} | '
+    f'lr={lr} | iter={iter} | ')
     logger.info(f'Prequential Hit@{k}: {np.mean(prequential_hits):.4f}')
     logger.info(f'HR@{k}: {np.mean(final_hr_list):.4f}')
-    logger.info(f'NDCGai@{k}: {np.mean(final_ndcg_ai_list):.4f}')
-    logger.info(f'NDCGap@{k}: {np.mean(final_ndcg_ap_list):.4f}')
+    logger.info(f'Recall@{k}: {np.mean(final_recall_list):.4f}')
+    logger.info(f'NDCG@{k} (ai): {np.mean(final_ndcg_ai_list):.4f}')
+    logger.info(f'NDCG@{k} (ap): {np.mean(final_ndcg_ap_list):.4f}')
     logger.info(f'User Average Time: {np.mean(user_time_list):.6f}')
     logger.info(f'Total Aggregations: {len(aggregation_time_list)}')
     logger.info(f'Average Aggregation Time: {np.mean(aggregation_time_list):.6f}s')
     logger.info(f'Total Time: {time.perf_counter() - time_dataset:.4f} seconds')
 
-if __name__ == '__main__':
-    main()
+for h in hidden_dim:
+    for ru in reg_u:
+        for rv in reg_v:
+            for l in lr:
+                for it in iter:
+                    logger.info(
+                        f'Running with hidden_dim={h}, '
+                        f'reg_u={ru}, reg_v={rv}, '
+                        f'lr={l}, iter={it}'
+                    )
+                    main(h, ru, rv, l, it)
