@@ -10,6 +10,8 @@ notes.txt
 agg_data.txt
 training.log
 ml-32m_cache.pkl
+results_csv.py
+results_hiperparams.csv
 
 geleia.py
 fedPMF.py
