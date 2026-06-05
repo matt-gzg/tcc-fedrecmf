@@ -31,18 +31,18 @@ df.reset_index(drop=True, inplace=True)
 
 print('Filtering positive interactions...')
 
-df = df[df['rating'] >= 4].copy()
+df = df[df['rating'] == 5].copy()
 
 print(f'Remaining interactions: {len(df)}')
 
-print(f'Using only {sample_ratio*100:.0f} % of dataset...')
+# print(f'Using only {sample_ratio*100:.0f} % of dataset...')
 
-sample_size = max(1, int(len(df) * sample_ratio))
-df = df.iloc[:sample_size].copy()
+# sample_size = max(1, int(len(df) * sample_ratio))
+# df = df.iloc[:sample_size].copy()
 
-print(f'Using {sample_size} interactions '
-    f'({sample_ratio * 100:.0f}% of filtered dataset)'
-)
+# print(f'Using {sample_size} interactions '
+#     f'({sample_ratio * 100:.0f}% of filtered dataset)'
+# )
 
 print('Removing rating column...')
 
@@ -60,36 +60,13 @@ item_id_map = {
 
 df['item_idx'] = df['movieId'].map(item_id_map)
 
-train_ratio = 0.8
-validation_ratio = 0.2
-
-n = len(df)
-
-train_val_end = max(1, int(n * train_ratio))
-train_end = max(1, int(train_val_end * (1 - validation_ratio)))
-
-train_df = df.iloc[:train_end]
-validation_df = df.iloc[train_end:train_val_end]
-test_df = df.iloc[train_val_end:]
-
 print('Building dictionaries...')
 
-train_data = {uid: [] for uid in user_id_list}
-validation_data = {uid: [] for uid in user_id_list}
-test_data = {uid: [] for uid in user_id_list}
+stream_data = []
 
-for row in train_df.itertuples(index=False):
-    train_data[row.userId].append((row.item_idx, row.timestamp))
+for row in df.itertuples(index=False):
+    stream_data.append((row.userId, row.item_idx))
 
-for row in validation_df.itertuples(index=False):
-    validation_data[row.userId].append((row.item_idx, row.timestamp))
-
-for row in test_df.itertuples(index=False):
-    test_data[row.userId].append((row.item_idx, row.timestamp))
-
-del train_df
-del validation_df
-del test_df
 del df
 
 cache_path = os.path.join(current_path, f'{dataset}_cache.pkl')
@@ -98,9 +75,7 @@ print('Saving cache...')
 
 with open(cache_path, 'wb') as f:
     pickle.dump({
-        'train_data': train_data,
-        'validation_data': validation_data,
-        'test_data': test_data,
+        'stream_data': stream_data,
         'user_id_list': user_id_list,
         'item_id_list': item_id_list,
         'item_id_map': item_id_map
