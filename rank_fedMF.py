@@ -87,7 +87,8 @@ def main(train_end, validation_end):
             if seen_items:
                 p[list(seen_items)] = -np.inf
 
-            top_k = np.argpartition(p, -k)[-k:]
+            proximity = np.abs(1 - p)
+            top_k = np.argpartition(proximity, k)[:k]
             if item_id in top_k:
                 hits += 1
             total_predictions += 1

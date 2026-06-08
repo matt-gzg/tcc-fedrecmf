@@ -9,13 +9,13 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s | %(levelname)s | %(message)s',
     handlers=[
-        logging.FileHandler('training.log', mode='w'),
+        logging.FileHandler('training_fed.log', mode='a'),
     ]
 )
 
 logger = logging.getLogger(__name__)
 
-def user_update(user_vector, item_id, v):
+def user_update(user_vector, item_id, v, lr, reg_u, reg_v, iter):
     gradient = {}
     p_ui = 1.0
 
@@ -26,7 +26,7 @@ def user_update(user_vector, item_id, v):
 
     return user_vector, gradient
 
-def aggregate_fedavg(items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated, item_users_all):
+def aggregate_fedavg(items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated, item_users_all, hidden_dim):
     for item_id in updated_items:
         total_interacs = 0
         weighted_sum = np.zeros(hidden_dim)
@@ -44,7 +44,7 @@ def aggregate_fedavg(items_matrix_global, items_matrix_local, interact_count, up
 
     return items_matrix_global, items_matrix_local
 
-def main(train_end, validation_end):
+def main(train_end, validation_end, hidden_dim, reg_u, reg_v, lr, iter):
     time_dataset = time.perf_counter()
 
     users_matrix = 0.1 * np.random.randn(len(user_id_list), hidden_dim)
@@ -97,7 +97,7 @@ def main(train_end, validation_end):
 
         current_item = items_matrix_local[uid][item_id]
 
-        users_matrix[user_index], gradient = user_update(users_matrix[user_index], item_id, current_item)
+        users_matrix[user_index], gradient = user_update(users_matrix[user_index], item_id, current_item, lr, reg_u, reg_v, iter)
         items_matrix_local[uid][item_id] -= gradient[item_id]
 
         updated_items.add(item_id)
@@ -129,7 +129,7 @@ def main(train_end, validation_end):
         if obs_count % aggregation_int == 0:
             aggregation_start = time.perf_counter()
 
-            items_matrix_global, items_matrix_local = aggregate_fedavg(items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated, item_users_all)
+            items_matrix_global, items_matrix_local = aggregate_fedavg(items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated, item_users_all, hidden_dim)
             items_matrix_global_T = items_matrix_global.T
 
             aggregation_elapsed = time.perf_counter() - aggregation_start
@@ -154,12 +154,17 @@ def main(train_end, validation_end):
     logger.info(f'Average Aggregation Time: {np.mean(aggregation_time_list):.6f}s')
     logger.info(f'Total Time: {time.perf_counter() - time_dataset:.4f} seconds')
 
+    logger.info(
+        f'RESULT | h={h} | reg={ru} | lr={l} | iter={it} | HR20={hits / total_predictions:.6f}'
+    )
+
 if __name__ == '__main__':
     n = len(stream_data)
 
     train_end = int(n * train_ratio)
     validation_end = train_end + int(n * validation_ratio)
 
+    logger.info('-' * 80)
     logger.info(
         f'hidden_dim: {hidden_dim} | reg: {reg_u} | lr: {lr} | iter: {iter} \n'
         f'Dataset size: {n} | '
@@ -167,5 +172,16 @@ if __name__ == '__main__':
         f'Validation: {validation_end - train_end} | '
         f'Test: {n - validation_end}'
     )
+
+    for h in hidden_dim:
+        for ru in reg_u:
+                for l in lr:
+                    for it in iter:
+                        logger.info(
+                            f'Running with hidden_dim={h}, '
+                            f'reg_u={ru}, reg_v={ru}, '
+                            f'lr={l}, iter={it}'
+                        )
+                        main(train_end, validation_end, h, ru, ru, l, it)
 
     main(train_end, validation_end)
