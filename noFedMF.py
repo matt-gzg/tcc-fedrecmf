@@ -15,12 +15,11 @@ logger = logging.getLogger(__name__)
 
 def user_item_update(user_vector, item_vector):
     p_ui = 1.0
-    for _ in range(iter):
-        error = p_ui - np.dot(user_vector, item_vector)
-        grad_user = -2 * error * item_vector + 2 * reg_u * user_vector
-        grad_item = -2 * error * user_vector + 2 * reg_v * item_vector
-        user_vector = user_vector - lr * grad_user
-        item_vector = item_vector - lr * grad_item
+    error = p_ui - np.dot(user_vector, item_vector)
+    grad_user = -2 * error * item_vector + 2 * reg_u * user_vector
+    grad_item = -2 * error * user_vector + 2 * reg_v * item_vector
+    user_vector = user_vector - lr * grad_user
+    item_vector = item_vector - lr * grad_item
     return user_vector, item_vector
 
 def main(train_end, validation_end):
@@ -36,38 +35,22 @@ def main(train_end, validation_end):
     hits = 0
     total_predictions = 0
 
-    # FASE 1: BSGD — treino em batch com shuffle
+    #fase1 - batch
     train_data = list(stream_data[:train_end])
-    for epoch in range(iter_b):
+    for epoch in range(iter):
         np.random.shuffle(train_data)
         for uid, item_id in train_data:
             user_index = user_id_map[uid]
             users_matrix[user_index], items_matrix[item_id] = user_item_update(
                 users_matrix[user_index], items_matrix[item_id]
             )
-        logger.info(f'[BATCH] Epoch {epoch + 1}/{iter_b} | Time={time.perf_counter() - time_dataset:.2f}s')
-
-    logger.info(
-    f'User norm mean: {np.mean(np.linalg.norm(users_matrix, axis=1)):.6f}'
-    )
-
-    logger.info(
-        f'User norm std: {np.std(np.linalg.norm(users_matrix, axis=1)):.6f}'
-    )
-
-    logger.info(
-        f'Item norm mean: {np.mean(np.linalg.norm(items_matrix, axis=1)):.6f}'
-    )
-
-    logger.info(
-        f'Item norm std: {np.std(np.linalg.norm(items_matrix, axis=1)):.6f}'
-    )
+        logger.info(f'[BATCH] Epoch {epoch + 1}/{iter} | Time={time.perf_counter() - time_dataset:.2f}s')
 
     for uid, item_id in train_data:
         seen_items_online[uid].add(item_id)
 
-    # FASE 2: ISGD — test-then-learn incremental
-    items_matrix_T = items_matrix.T
+    #fase2 - prequential
+    items_matrix_T = items_matrix.T.copy()
     last_log_time = time.perf_counter()
 
     for obs_count, (uid, item_id) in enumerate(stream_data[train_end:validation_end], start=1):
@@ -87,7 +70,7 @@ def main(train_end, validation_end):
         users_matrix[user_index], items_matrix[item_id] = user_item_update(
             users_matrix[user_index], items_matrix[item_id]
         )
-        items_matrix_T = items_matrix.T
+        items_matrix_T[:, item_id] = items_matrix[item_id]
         seen_items_online[uid].add(item_id)
         user_time_list.append(time.perf_counter() - t)
 
@@ -114,7 +97,7 @@ if __name__ == '__main__':
 
     logger.info(
         f'\n'
-        f'hidden_dim: {hidden_dim} | reg: {reg_u} | lr: {lr} | iter: {iter} | iter_b: {iter_b}\n'
+        f'hidden_dim: {hidden_dim} | reg: {reg_u} | lr: {lr} | iter: {iter}\n'
         f'Dataset size: {n} | '
         f'Train: {train_end} | '
         f'Validation: {validation_end - train_end} | '

@@ -1,0 +1,4 @@
+2026-06-10 21:31:46,980 | INFO | Grid search | 81 combinações | Dataset=4596577 | Train=459657 | Val=459657
+2026-06-10 21:31:46,980 | INFO | [1/81] Iniciando: {'hidden_dim': 16, 'lr': 0.001, 'reg': 0.001, 'n_iter': 5}
+2026-06-10 21:36:50,718 | INFO | [1/81] HR@20=0.0013 | Time=303.7s | {'hidden_dim': 16, 'lr': 0.001, 'reg': 0.001, 'n_iter': 5}
+2026-06-10 21:36:50,718 | INFO | [2/81] Iniciando: {'hidden_dim': 16, 'lr': 0.001, 'reg': 0.001, 'n_iter': 10}

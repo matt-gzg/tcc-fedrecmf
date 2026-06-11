@@ -3,12 +3,11 @@ import numpy as np
 
 np.random.seed(42)
 
-hidden_dim = [40, 50, 60, 70, 100]
-reg_u = [0.001]
-reg_v = [0.001]
-lr = [0.01]
-iter = [1]
-iter_b = [4, 6, 8, 10, 15, 20]
+hidden_dim = 16
+reg_u = 0.001
+reg_v = 0.001
+lr = 0.001
+iter = 5
 
 band_width = 1 # Gb/s
 

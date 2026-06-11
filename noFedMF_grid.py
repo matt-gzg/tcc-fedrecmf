@@ -1,122 +1,131 @@
 import time
+import csv
+import itertools
 import numpy as np
 import logging
-from shared_parameter import *
 from load_from_cache import (user_id_list, item_id_list, stream_data)
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s | %(levelname)s | %(message)s',
     handlers=[
-        logging.FileHandler('training_centralized.log', mode='a'),
+        logging.FileHandler('grid_search_centralized.log', mode='a'),
     ]
 )
 logger = logging.getLogger(__name__)
 
-def user_item_update(user_vector, item_vector, lr, reg_u, reg_v, iter):
-    p_ui = 1.0
-    for _ in range(iter):
-        error = p_ui - np.dot(user_vector, item_vector)
-        grad_user = -2 * error * item_vector + 2 * reg_u * user_vector
-        grad_item = -2 * error * user_vector + 2 * reg_v * item_vector
-        user_vector = user_vector - lr * grad_user
-        item_vector = item_vector - lr * grad_item
-    return user_vector, item_vector
+# ── Ratios (mantidos fixos) ────────────────────────────────────────────────────
+train_ratio      = 0.1
+validation_ratio = 0.1
+k                = 20
 
-def main(train_end, validation_end, hidden_dim, reg_u, reg_v, lr, iter, iter_b):
+# ── Grid ──────────────────────────────────────────────────────────────────────
+GRID = {
+    'hidden_dim': [16, 32, 64],
+    'lr':         [0.001, 0.005, 0.01],
+    'reg':        [0.001, 0.01, 0.1],
+    'n_iter':     [5, 10, 20],
+}
+
+CSV_PATH = 'grid_results_centralized.csv'
+CSV_FIELDS = ['hidden_dim', 'lr', 'reg', 'n_iter', 'hr_at_k', 'total_time_s']
+
+# ── Atualização SGD ────────────────────────────────────────────────────────────
+def user_item_update(user_vector, item_vector, lr, reg_u, reg_v):
+    error     = 1.0 - np.dot(user_vector, item_vector)
+    grad_user = -2 * error * item_vector + 2 * reg_u * user_vector
+    grad_item = -2 * error * user_vector + 2 * reg_v * item_vector
+    return user_vector - lr * grad_user, item_vector - lr * grad_item
+
+# ── Treino + avaliação para uma combinação de hiperparâmetros ──────────────────
+def run(hidden_dim, lr, reg, n_iter, train_end, validation_end):
     np.random.seed(42)
-    time_dataset = time.perf_counter()
+    t0 = time.perf_counter()
 
     users_matrix = 0.1 * np.random.randn(len(user_id_list), hidden_dim)
     items_matrix = 0.1 * np.random.randn(len(item_id_list), hidden_dim)
 
-    user_id_map = {uid: i for i, uid in enumerate(user_id_list)}
+    user_id_map      = {uid: i for i, uid in enumerate(user_id_list)}
     seen_items_online = {uid: set() for uid in user_id_list}
-    user_time_list = []
     hits = 0
     total_predictions = 0
 
-    # FASE 1: BSGD — treino em batch com shuffle
+    # Fase 1 — batch
     train_data = list(stream_data[:train_end])
-    for epoch in range(iter_b):
+    for epoch in range(n_iter):
         np.random.shuffle(train_data)
         for uid, item_id in train_data:
-            user_index = user_id_map[uid]
-            users_matrix[user_index], items_matrix[item_id] = user_item_update(
-                users_matrix[user_index], items_matrix[item_id], lr, reg_u, reg_v, iter
+            ui = user_id_map[uid]
+            users_matrix[ui], items_matrix[item_id] = user_item_update(
+                users_matrix[ui], items_matrix[item_id], lr, reg, reg
             )
-        logger.info(f'[BATCH] Epoch {epoch + 1}/{iter_b} | Time={time.perf_counter() - time_dataset:.2f}s')
 
     for uid, item_id in train_data:
         seen_items_online[uid].add(item_id)
 
-    # FASE 2: ISGD — test-then-learn incremental
-    items_matrix_T = items_matrix.T
-    last_log_time = time.perf_counter()
+    # Fase 2 — prequencial
+    items_matrix_T = items_matrix.T.copy()
 
-    for obs_count, (uid, item_id) in enumerate(stream_data[train_end:validation_end], start=1):
-        t = time.perf_counter()
-        user_index = user_id_map[uid]
+    for uid, item_id in stream_data[train_end:validation_end]:
+        ui = user_id_map[uid]
 
-        p = np.dot(users_matrix[user_index], items_matrix_T)
-        seen_items = seen_items_online[uid]
-        if seen_items:
-            p[list(seen_items)] = -np.inf
+        p = np.dot(users_matrix[ui], items_matrix_T)
+        seen = seen_items_online[uid]
+        if seen:
+            p[list(seen)] = -np.inf
 
         top_k = np.argpartition(-p, k)[:k]
         if item_id in top_k:
             hits += 1
         total_predictions += 1
 
-        users_matrix[user_index], items_matrix[item_id] = user_item_update(
-            users_matrix[user_index], items_matrix[item_id], lr, reg_u, reg_v, iter
+        users_matrix[ui], items_matrix[item_id] = user_item_update(
+            users_matrix[ui], items_matrix[item_id], lr, reg, reg
         )
-        items_matrix_T = items_matrix.T
+        items_matrix_T[:, item_id] = items_matrix[item_id]
         seen_items_online[uid].add(item_id)
-        user_time_list.append(time.perf_counter() - t)
 
-        if obs_count % 10000 == 0:
-            current_time = time.perf_counter()
-            logger.info(
-                f'[VALIDATION] Processed={obs_count} | '
-                f'AvgUserTime={np.mean(user_time_list[-10000:]):.6f}s | '
-                f'BlockTime={current_time - last_log_time:.6f}s | '
-                f'TotalTime={time.perf_counter() - time_dataset:.6f}s | '
-                f'HR@{k}={hits / total_predictions:.4f}'
-            )
-            last_log_time = current_time
+    hr    = hits / total_predictions if total_predictions > 0 else 0.0
+    elapsed = time.perf_counter() - t0
+    return hr, elapsed
 
-    logger.info(f'HR@{k}: {hits / total_predictions:.4f}')
-    logger.info(f'User Average Time: {np.mean(user_time_list):.6f}')
-    logger.info(f'Total Time: {time.perf_counter() - time_dataset:.4f} seconds')
-
-    logger.info(
-        f'RESULT | h={h} | reg={ru} | lr={l} | iter={it} | iter_b={itb} | HR20={hits / total_predictions:.6f}'
-        f'\n'
-    )
-
-if __name__ == '__main__':
-    n = len(stream_data)
-
-    train_end = int(n * train_ratio)
+# ── Grid search ────────────────────────────────────────────────────────────────
+def main():
+    n              = len(stream_data)
+    train_end      = int(n * train_ratio)
     validation_end = train_end + int(n * validation_ratio)
 
-    logger.info('-' * 80)
-    logger.info(
-        f'hidden_dim: {hidden_dim} | reg: {reg_u} | lr: {lr} | iter: {iter} \n'
-        f'Dataset size: {n} | '
-        f'Train: {train_end} | '
-        f'Validation: {validation_end - train_end} | '
-        f'Test: {n - validation_end}'
-    )
+    keys   = list(GRID.keys())
+    values = list(GRID.values())
+    combos = list(itertools.product(*values))
+    total  = len(combos)
 
-    for h in hidden_dim:
-        for ru in reg_u:
-                for l in lr:
-                    for it in iter:
-                        for itb in iter_b:
-                            logger.info(
-                                f'Running with hidden_dim={h}, reg_u={ru}, '
-                                f'lr={l}, iter={it}, iter_b={itb}'
-                            )
-                            main(train_end, validation_end, h, ru, ru, l, it, itb)
+    logger.info(f'Grid search | {total} combinações | Dataset={n} | Train={train_end} | Val={validation_end - train_end}')
+
+    with open(CSV_PATH, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+        writer.writeheader()
+
+        for idx, combo in enumerate(combos, start=1):
+            params = dict(zip(keys, combo))
+            logger.info(f'[{idx}/{total}] Iniciando: {params}')
+
+            hr, elapsed = run(
+                hidden_dim = params['hidden_dim'],
+                lr         = params['lr'],
+                reg        = params['reg'],
+                n_iter     = params['n_iter'],
+                train_end      = train_end,
+                validation_end = validation_end,
+            )
+
+            row = {**params, 'hr_at_k': round(hr, 6), 'total_time_s': round(elapsed, 2)}
+            writer.writerow(row)
+            f.flush()
+
+            logger.info(f'[{idx}/{total}] HR@{k}={hr:.4f} | Time={elapsed:.1f}s | {params}')
+
+    logger.info(f'Grid search concluído. Resultados em {CSV_PATH}')
+
+if __name__ == '__main__':
+    main()

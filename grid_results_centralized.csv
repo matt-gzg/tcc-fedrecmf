@@ -1,0 +1,2 @@
+hidden_dim,lr,reg,n_iter,hr_at_k,total_time_s
+16,0.001,0.001,5,0.00134,303.68
