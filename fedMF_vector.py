@@ -15,16 +15,17 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-def user_update(user_vector, item_id, v):
-    gradient = {}
-    p_ui = 1.0
+def user_update(user_vector, v):
+    v_local = v.copy()
 
     for _ in range(iter):
-        error = p_ui - np.dot(user_vector, v)
-        user_vector = user_vector - lr * (-2 * error * v + 2 * reg_u * user_vector)
-        gradient[item_id] = lr * (-2 * error * user_vector + 2 * reg_v * v)
+        error = 1.0 - np.dot(user_vector, v_local)
+        grad_u = -2 * error * v_local + 2 * reg_u * user_vector
+        grad_v = -2 * error * user_vector + 2 * reg_v * v_local
+        user_vector -= lr * grad_u
+        v_local -= lr * grad_v
 
-    return user_vector, gradient
+    return user_vector, v_local
 
 def aggregate_fedavg(items_matrix_global, items_matrix_local, interact_count, updated_items, item_users_updated, item_users_all):
     for item_id in updated_items:
@@ -97,8 +98,7 @@ def main(train_end, validation_end):
 
         current_item = items_matrix_local[uid][item_id]
 
-        users_matrix[user_index], gradient = user_update(users_matrix[user_index], item_id, current_item)
-        items_matrix_local[uid][item_id] -= gradient[item_id]
+        users_matrix[user_index], items_matrix_local[uid][item_id] = user_update(users_matrix[user_index], current_item)
 
         updated_items.add(item_id)
         interact_count[uid] += 1
